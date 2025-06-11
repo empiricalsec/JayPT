@@ -2,7 +2,7 @@
 require_relative "../lib/jay_pt"
 
 def main
-  # TODO
+  p JayPT::CVE.new("CVE-2025-20001").fetch
 end
 
 main if __FILE__ == $PROGRAM_NAME
