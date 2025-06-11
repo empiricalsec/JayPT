@@ -1,0 +1,96 @@
+services:
+  cve_search:
+    image: cve_search
+    build:
+      context: ./cve-search-docker
+      dockerfile: docker/images/cve_search/dockerfile-cve_search
+      args:
+        - REPO=cve-search/cve-search
+        - BRANCH=master
+    hostname: cve_search
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    restart: always
+    labels:
+      - "autoheal=true"
+    environment:
+      - PYTHONUNBUFFERED=TRUE
+      - WORKER_SIZE=1
+      - MONGODB_HOST=mongo
+    ports:
+      - "443:5000"
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: curl --fail https://localhost:5000 -k || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 1
+      start_period: 5s
+
+  redis:
+    image: cve_search-redis
+    hostname: redis
+    restart: always
+    labels:
+      - "autoheal=true"
+    build:
+      context: ./cve-search-docker
+      dockerfile: docker/images/redis/dockerfile-redis
+    volumes:
+      - redis_data:/data
+    expose:
+      - 6379
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 1
+      start_period: 30s
+
+  mongo:
+    image: cve_search-mongo
+    hostname: mongo
+    restart: always
+    labels:
+      - "autoheal=true"
+    build:
+      context: ./cve-search-docker
+      dockerfile: docker/images/mongodb/dockerfile-mongo
+    volumes:
+      - mongodb_data:/data/db
+    expose:
+      - 27017
+    networks:
+      - backend
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  autoheal:
+    image: willfarrell/autoheal:latest
+    hostname: autoheal
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+    networks:
+      - backend
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  mongodb_data:
+  redis_data:

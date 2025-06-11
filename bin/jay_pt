@@ -1,41 +1,7 @@
 #!/usr/bin/env ruby
 require_relative "../lib/jay_pt"
 
-def check_docker_compose_running
-  cve_search_dir = File.join(__dir__, "..", "cve-search-docker")
-
-  unless Dir.exist?(cve_search_dir)
-    puts "Error: CVE-Search-Docker submodule not found at #{cve_search_dir}"
-    puts "Please run: git submodule update --init --recursive"
-    exit 1
-  end
-
-  result = `docker compose -f #{cve_search_dir}/docker-compose.yml ps -q 2>/dev/null`
-
-  if result.strip.empty?
-    puts "CVE-Search-Docker is not running. Starting docker-compose..."
-
-    Dir.chdir(cve_search_dir) do
-      system("docker compose up -d")
-    end
-
-    puts "Waiting for services to start..."
-    sleep 5
-
-    result = `docker compose -f #{cve_search_dir}/docker-compose.yml ps -q 2>/dev/null`
-
-    if result.strip.empty?
-      puts "Error: Failed to start CVE-Search-Docker"
-      exit 1
-    end
-  end
-
-  puts "CVE-Search-Docker is running ✓"
-end
-
 def main
-  check_docker_compose_running
-
   # TODO
 end
 
