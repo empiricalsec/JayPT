@@ -1,3 +1,5 @@
+require "ruby_llm"
+
 module JayPT
   class Agent
     SYSTEM_PROMPT = <<~PROMPT
@@ -71,8 +73,39 @@ module JayPT
       ────────────────────────────────────────────────────────
     PROMPT
 
+    attr_reader :model
+
     def initialize(model: "gpt-4o-mini")
-      @llm = RubyLLM.new(model:)
+      @model = model
+    end
+
+    def score_cve(id)
+      cve_data = JayPT::CVE.new(id).fetch
+
+      analysis = chat.ask <<~PROMPT
+        Here is the CVE you are analyzing:
+
+        CVE: #{id}
+
+        #{cve_data.to_json}
+
+        Please analyze the CVE and provide a concise paragraph assessing the likelihood of exploitation in the next 30 days.
+      PROMPT
+
+      score = chat.ask("Now, please provide a score between 0.0 and 1.0.")
+
+      {
+        analysis: analysis.content,
+        score: score.content.to_f
+      }
+    end
+
+    private
+
+    def chat
+      @chat ||= RubyLLM.chat(model:).with_temperature(0.0).tap do |chat|
+        chat.add_message(role: "system", content: SYSTEM_PROMPT)
+      end
     end
   end
 end

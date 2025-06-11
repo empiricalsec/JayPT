@@ -5,11 +5,12 @@ require "time"
 
 module JayPT
   class CVE
-    attr_reader :id, :ttl_days
+    DATA_TTL_DAYS = 30
 
-    def initialize(id, ttl_days: 30)
+    attr_reader :id
+
+    def initialize(id)
       @id = id
-      @ttl_days = ttl_days
       ensure_database_exists
     end
 
@@ -65,7 +66,7 @@ module JayPT
     end
 
     def cache_expired?(cached_at)
-      Time.now - cached_at > (ttl_days * 24 * 60 * 60)
+      Time.now - cached_at > (DATA_TTL_DAYS * 24 * 60 * 60)
     end
 
     def db
