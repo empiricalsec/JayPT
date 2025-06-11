@@ -1,6 +1,7 @@
 services:
   cve_search:
     image: cve_search
+    container_name: cve_search
     build:
       context: ./cve-search-docker
       dockerfile: docker/images/cve_search/dockerfile-cve_search

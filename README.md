@@ -10,3 +10,15 @@ My sole mission: **estimate the probability (0.0 – 1.0)** that a supplied CVE 
  git submodule update --init --recursive
  docker compose up -d
  ```
+
+Populate the [CVE-Search](https://cve-search.github.io/cve-search/database/database.html#populating-the-database) database:
+
+```bash
+docker exec cve_search ./sbin/db_updater.py -f -c
+``
+
+You can update an already-populated database with:
+
+```
+docker exec cve_search ./sbin/db_updater.py
+ ```
