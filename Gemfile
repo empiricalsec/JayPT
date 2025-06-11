@@ -1,5 +1,6 @@
 source "https://rubygems.org"
 
+gem "dotenv"
 gem "httpx"
 gem "rubocop"
 gem "ruby_llm"
