@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-require_relative "../lib/jay_pt"
+require_relative "../lib/jaypt"
 
 def main
   models = [
