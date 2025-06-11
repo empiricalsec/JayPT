@@ -75,7 +75,7 @@ module JayPT
 
     attr_reader :model
 
-    def initialize(model: "gpt-4o-mini")
+    def initialize(model: "openai/gpt-4o-mini")
       @model = model
     end
 
