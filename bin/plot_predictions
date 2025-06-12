@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+
+import sys
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: plot_model_scores.py path/to/data.csv")
+        sys.exit(1)
+
+    input_path = sys.argv[1]
+
+    # Load CSV
+    df = pd.read_csv(input_path)
+
+    # Validate required columns
+    required_columns = {"model", "cve", "score"}
+    if not required_columns.issubset(df.columns):
+        print(f"Error: CSV must contain columns: {', '.join(required_columns)}")
+        sys.exit(1)
+
+    # Order CVEs by EPSS score
+    epss_df = df[df["model"] == "EPSS"].copy()
+    epss_df = epss_df.sort_values("score")
+    ordered_cves = epss_df["cve"].tolist()
+
+    # Set CVE as ordered category to control x-axis order
+    df["cve"] = pd.Categorical(df["cve"], categories=ordered_cves, ordered=True)
+
+    # Plot
+    plt.figure(figsize=(14, 6))
+    sns.stripplot(data=df, x="cve", y="score", hue="model", jitter=False, dodge=True, alpha=0.7, size=6)
+
+    plt.title("Model CVE Scores Compared to EPSS")
+    plt.xlabel("CVE (ordered by EPSS score)")
+    plt.ylabel("Score")
+    plt.xticks(rotation=90)
+    plt.tight_layout()
+    plt.legend(title="Model")
+    plt.grid(True, linestyle="--", alpha=0.4)
+
+    # Save and show
+    plt.savefig("data/model_scores_plot.png")
+    plt.show()
+
+if __name__ == "__main__":
+    main()

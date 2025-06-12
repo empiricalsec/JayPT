@@ -24,16 +24,18 @@ if ARGV.first =~ /\.csv$/
   pool = Concurrent::FixedThreadPool.new(POOL_SIZE)
   futures = []
 
-  File.open(ARGV[1], "w") do |file|
-    file.puts "model,cve,score,analysis,inference_time,input_tokens,output_tokens"
+  CSV.open(ARGV[1], "w") do |csv|
+    csv << %w[model cve score analysis inference_time input_tokens output_tokens]
 
     CSV.foreach(ARGV.first, headers: true) do |row|
+      csv << [row["Model"], row["CVE ID"], row["Score"], "", 0, 0, 0] if row["Model"] && row["Score"]
+
       models.each do |model|
         futures << Concurrent::Promises.future_on(pool) do
           agent = JayPT::Agent.new(model:)
           results = agent.score_cve(row["CVE ID"])
 
-          file.puts [
+          csv << [
             model,
             row["CVE ID"],
             results[:score],
@@ -41,11 +43,11 @@ if ARGV.first =~ /\.csv$/
             results[:inference_time].round(1),
             results[:input_tokens],
             results[:output_tokens]
-          ].join(",")
+          ]
 
           puts "Analyzed #{row['CVE ID']} (#{model})"
         rescue StandardError => e
-          file.puts [model, row["CVE ID"], 0, "ERROR: #{e.class} - #{e.message[0..100]}", 0, 0, 0].join(",")
+          csv << [model, row["CVE ID"], 0, "ERROR: #{e.class} - #{e.message[0..100]}", 0, 0, 0]
           puts "Error analyzing #{row['CVE ID']} (#{model}): #{e.class} - #{e.message}"
         end
       end
