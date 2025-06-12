@@ -46,7 +46,7 @@ module JayPT
 
     def chat
       @chat ||= RubyLLM.chat(model:).with_temperature(0.0).tap do |chat|
-        system_prompt = File.read(File.join(__dir__, "agent/system_prompt.md"))
+        system_prompt = File.read(File.join(__dir__, "agent/system_prompt.txt"))
         chat.add_message(role: "system", content: system_prompt)
       end
     end
