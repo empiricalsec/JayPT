@@ -9,14 +9,15 @@ def main
   ]
 
   models.each do |model|
-    start_time = Time.now
-    results = JayPT::Agent.new(model:).score_cve(ARGV.first)
-    end_time = Time.now
+    agent = JayPT::Agent.new(model:)
+    results = agent.score_cve(ARGV.first)
 
     puts "Model: #{model}"
     puts "Score: #{results[:score]}"
     puts "Analysis: #{results[:analysis]}"
-    puts "Time taken: #{end_time - start_time} seconds\n\n"
+    puts "Inference time: #{results[:inference_time].round(1)} seconds"
+    puts "Input tokens: #{results[:input_tokens]}"
+    puts "Output tokens: #{results[:output_tokens]}"
   end
 end
 
