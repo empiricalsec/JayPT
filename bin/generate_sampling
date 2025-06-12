@@ -1,0 +1,41 @@
+#!/usr/bin/env ruby
+
+# Generate a sampling of CVE scores from the EPSS data that can be used as
+# input for the model.
+#
+# Usage:
+# bin/generate_sampling 1000
+# This will generate a sample of 1000 CVEs from the EPSS data and save it to
+# data/cve_sampling.csv.
+
+require "csv"
+require "fileutils"
+
+DATA_DIR = File.expand_path("../data", __dir__)
+EPSS_PATH = File.join(DATA_DIR, "epss_scores-current.csv")
+SAMPLE_SIZE = ARGV[0] ? ARGV[0].to_i : 1000
+OUTPUT_PATH = File.join(DATA_DIR, "cve_sampling.csv")
+
+unless File.exist?(EPSS_PATH)
+  puts "EPSS data not found. Run bin/update_epss_data first."
+  exit 1
+end
+
+if File.exist?(OUTPUT_PATH)
+  puts "#{OUTPUT_PATH} already exists. Overwrite? (y/n)"
+  exit 0 unless gets.chomp.downcase == "y"
+end
+
+puts "Reading EPSS data and sampling #{SAMPLE_SIZE} entries..."
+valid_lines = File.readlines(EPSS_PATH).reject { |l| l.start_with?("#") }
+rows = CSV.parse(valid_lines.join, headers: true).select { |r| r["cve"] && r["epss"] }
+
+CSV.open(OUTPUT_PATH, "wb") do |csv|
+  csv << ["CVE ID", "Model", "Score"]
+
+  rows
+    .sample([rows.size, SAMPLE_SIZE].min)
+    .each { |row| csv << [row["cve"], "EPSS", row["epss"]] }
+end
+
+puts "Sample CSV generated at #{OUTPUT_PATH}"

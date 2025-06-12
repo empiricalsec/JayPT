@@ -17,4 +17,4 @@ File.write(GZ_PATH, URI.parse(URL).open.read)
 puts "Extracting data..."
 File.write(CSV_PATH, Zlib::GzipReader.open(GZ_PATH).read)
 
-puts "EPSS data saved to #{CSV_PATH}"
+puts "EPSS data extracted to #{CSV_PATH}"

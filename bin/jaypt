@@ -1,24 +1,21 @@
 #!/usr/bin/env ruby
+
 require_relative "../lib/jaypt"
 
-def main
-  models = [
-    "google/gemini-2.5-pro-preview",
-    "openai/gpt-4.1",
-    "anthropic/claude-opus-4"
-  ]
+models = [
+  "google/gemini-2.5-pro-preview",
+  "openai/gpt-4.1",
+  "anthropic/claude-opus-4"
+]
 
-  models.each do |model|
-    agent = JayPT::Agent.new(model:)
-    results = agent.score_cve(ARGV.first)
+models.each do |model|
+  agent = JayPT::Agent.new(model:)
+  results = agent.score_cve(ARGV.first)
 
-    puts "Model: #{model}"
-    puts "Score: #{results[:score]}"
-    puts "Analysis: #{results[:analysis]}"
-    puts "Inference time: #{results[:inference_time].round(1)} seconds"
-    puts "Input tokens: #{results[:input_tokens]}"
-    puts "Output tokens: #{results[:output_tokens]}"
-  end
+  puts "Model: #{model}"
+  puts "Score: #{results[:score]}"
+  puts "Analysis: #{results[:analysis]}"
+  puts "Inference time: #{results[:inference_time].round(1)} seconds"
+  puts "Input tokens: #{results[:input_tokens]}"
+  puts "Output tokens: #{results[:output_tokens]}"
 end
-
-main if __FILE__ == $PROGRAM_NAME
