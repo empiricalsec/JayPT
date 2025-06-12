@@ -1,0 +1,20 @@
+#!/usr/bin/env ruby
+
+require "fileutils"
+require "open-uri"
+require "zlib"
+
+URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
+DATA_DIR = File.expand_path("../data", __dir__)
+GZ_PATH = File.join(DATA_DIR, "epss_scores-current.csv.gz")
+CSV_PATH = File.join(DATA_DIR, "epss_scores-current.csv")
+
+FileUtils.mkdir_p(DATA_DIR)
+
+puts "Downloading EPSS data..."
+File.write(GZ_PATH, URI.parse(URL).open.read)
+
+puts "Extracting data..."
+File.write(CSV_PATH, Zlib::GzipReader.open(GZ_PATH).read)
+
+puts "EPSS data saved to #{CSV_PATH}"
