@@ -19,6 +19,7 @@ if ARGV.first =~ /\.csv$/
 
   puts "Models: #{models.join(', ')}"
   puts "Writing to #{ARGV[1]}"
+  puts "Pool size: #{POOL_SIZE}"
 
   pool = Concurrent::FixedThreadPool.new(POOL_SIZE)
   futures = []
