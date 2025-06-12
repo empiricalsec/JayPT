@@ -1,5 +1,6 @@
 source "https://rubygems.org"
 
+gem "concurrent-ruby"
 gem "dotenv"
 gem "httpx"
 gem "rubocop"
