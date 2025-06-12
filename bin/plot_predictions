@@ -33,6 +33,8 @@ def main():
     plt.figure(figsize=(14, 6))
     sns.stripplot(data=df, x="cve", y="score", hue="model", jitter=False, dodge=True, alpha=0.7, size=6)
 
+    plt.yscale('log')
+
     plt.title("Model CVE Scores Compared to EPSS")
     plt.xlabel("CVE (ordered by EPSS score)")
     plt.ylabel("Score")
