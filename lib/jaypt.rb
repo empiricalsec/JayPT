@@ -1,7 +1,7 @@
 require "dotenv/load"
 
 require_relative "jaypt/agent"
-require_relative "jaypt/cve"
+require_relative "jaypt/cve_search"
 
 RubyLLM.configure do |config|
   config.openrouter_api_key = ENV["OPENROUTER_API_KEY"]

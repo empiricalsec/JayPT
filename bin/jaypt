@@ -1,21 +1,75 @@
 #!/usr/bin/env ruby
 
 require_relative "../lib/jaypt"
+require "csv"
+
+$stderr = File.open("errors.log", "w")
 
 models = [
-  "google/gemini-2.5-pro-preview",
+  # "google/gemini-2.5-pro-preview",
   "openai/gpt-4.1",
   "anthropic/claude-opus-4"
 ]
 
-models.each do |model|
-  agent = JayPT::Agent.new(model:)
-  results = agent.score_cve(ARGV.first)
+if ARGV.first =~ /\.csv$/
+  raise "Second argument must be an output CSV file" if ARGV[1] !~ /\.csv$/
 
-  puts "Model: #{model}"
-  puts "Score: #{results[:score]}"
-  puts "Analysis: #{results[:analysis]}"
-  puts "Inference time: #{results[:inference_time].round(1)} seconds"
-  puts "Input tokens: #{results[:input_tokens]}"
-  puts "Output tokens: #{results[:output_tokens]}"
+  puts "Models: #{models.join(', ')}"
+  puts "Writing to #{ARGV[1]}"
+
+  File.open(ARGV[1], "w") do |file|
+    file.puts "model,cve,score,analysis,inference_time,input_tokens,output_tokens"
+
+    CSV.foreach(ARGV.first, headers: true) do |row|
+      threads = models.map do |model|
+        Thread.new do
+          agent = JayPT::Agent.new(model:)
+          results = agent.score_cve(row["CVE ID"])
+
+          file.puts [
+            model,
+            row["CVE ID"],
+            results[:score],
+            results[:analysis],
+            results[:inference_time].round(1),
+            results[:input_tokens],
+            results[:output_tokens]
+          ].join(",")
+
+          file.flush
+        end
+      end
+
+      threads.each(&:join)
+
+      puts "Analyzed #{row['CVE ID']}"
+    end
+  end
+else
+  puts "Running models against #{ARGV.first}\n\n"
+
+  threads = models.map do |model|
+    Thread.new do
+      agent = JayPT::Agent.new(model:)
+      results = agent.score_cve(ARGV.first)
+
+      puts <<~OUTPUT
+        Model: #{model}
+        Score: #{results[:score]}
+        Analysis: #{results[:analysis]}
+        Inference time: #{results[:inference_time].round(1)} seconds
+        Input tokens: #{results[:input_tokens]}
+        Output tokens: #{results[:output_tokens]}
+
+      OUTPUT
+    rescue StandardError => e
+      puts <<~OUTPUT
+        Model: #{model}
+        Error: #{e.class} - #{e.message}
+
+      OUTPUT
+    end
+  end
+
+  threads.each(&:join)
 end

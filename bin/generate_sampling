@@ -23,7 +23,7 @@ end
 
 if File.exist?(OUTPUT_PATH)
   puts "#{OUTPUT_PATH} already exists. Overwrite? (y/n)"
-  exit 0 unless gets.chomp.downcase == "y"
+  exit 0 unless $stdin.gets.chomp.downcase == "y"
 end
 
 puts "Reading EPSS data and sampling #{SAMPLE_SIZE} entries..."

@@ -9,7 +9,15 @@ module JayPT
     end
 
     def score_cve(id)
-      cve_data = JayPT::CVE.new(id).fetch
+      cve_data = JayPT::CVESearch.new(id).fetch
+
+      if cve_data.nil?
+        return {
+          score: nil,
+          analysis: "Unable to fetch CVE data",
+          inference_time: 0.0
+        }
+      end
 
       start_inference_time = Time.now
 

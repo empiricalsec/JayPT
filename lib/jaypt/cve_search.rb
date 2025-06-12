@@ -4,7 +4,7 @@ require "json"
 require "time"
 
 module JayPT
-  class CVE
+  class CVESearch # https://cve.circl.lu/about
     DATA_TTL_DAYS = 30
 
     attr_reader :id
@@ -47,13 +47,12 @@ module JayPT
 
     def fetch_from_api
       url = "https://cve.circl.lu/api/cve/#{id}"
-      response = HTTPX.get(url)
-
-      raise Error, "HTTP #{response.status}" unless response.status == 200
+      response = HTTPX.get(url).raise_for_status
 
       JSON.parse(response.body)
-    rescue HTTPX::Error, JSON::ParserError => e
-      raise Error, "Failed to fetch CVE #{id}: #{e.message}"
+    rescue HTTPX::Error, HTTPS::HTTPError, JSON::ParserError => e
+      warn "Failed to fetch CVE #{id}: #{e.message[0..100]}"
+      nil
     end
 
     def cache_data(data)
@@ -74,7 +73,7 @@ module JayPT
     end
 
     def db_path
-      File.join(__dir__, "../../data/cve_cache.db")
+      File.join(__dir__, "../../data/cve_search_cache.db")
     end
 
     def ensure_database_exists
