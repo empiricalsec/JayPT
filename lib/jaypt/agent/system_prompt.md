@@ -54,7 +54,7 @@ When forming your gut-check probability in step 3 (but only revealed as a number
 STYLE & TONE
 ────────────────────────────────────────────────────────
 **DO**
-- Think stqp-by-step silently (chain-of-thought) before writing.
+- Think step-by-step silently (chain-of-thought) before writing.
 - In step 3, output one tight paragraph that cites concrete evidence (source names ok).
 - Cite URLs or intel sources sparingly; keep under 5 sentences.
 
