@@ -1,0 +1,181 @@
+#!/usr/bin/env ruby
+
+require_relative "../lib/jaypt"
+require "csv"
+require "fileutils"
+
+prompt_path = File.join(__dir__, "../lib/jaypt/agent/system_prompt.txt")
+
+def evaluate_results
+  output_csv_path = File.join(__dir__, "../data/output.csv")
+
+  cves = {}
+  CSV.foreach(output_csv_path, headers: true) do |row|
+    cve_id = row["cve"]
+
+    next unless cve_id
+
+    cves[cve_id] ||= {}
+
+    if row["model"] == "EPSS"
+      cves[cve_id][:epss] = row["score"].to_f
+    else
+      cves[cve_id][row["model"]] ||= {}
+      cves[cve_id][row["model"]][:score] = row["score"].to_f
+      cves[cve_id][row["model"]][:analysis] = row["analysis"]
+    end
+  end
+
+  model_data = {}
+  cves.each do |cve_id, data|
+    epss_score = data[:epss]
+    next unless epss_score
+
+    data.each do |model_name, model_results|
+      next if model_name == :epss
+      next unless model_results[:score] && model_results[:analysis]
+
+      model_data[model_name] ||= { errors: [], analyses: {} }
+
+      score = model_results[:score]
+      error = score - epss_score
+      model_data[model_name][:errors] << error
+      model_data[model_name][:analyses][cve_id] = {
+        analysis: model_results[:analysis],
+        error:,
+        jaypt_score: score,
+        epss_score:
+      }
+    end
+  end
+
+  report = ""
+  model_data.each do |model, data|
+    next if data[:analyses].empty?
+
+    mae = data[:errors].map(&:abs).sum / data[:errors].size.to_f
+    report << "  - Mean Absolute Error (MA): #{mae.round(4)}\n"
+
+    sorted_analyses = data[:analyses].to_a.sort_by { |_, d| d[:error] }
+
+    largest_overestimation = sorted_analyses.last
+    largest_underestimation = sorted_analyses.first
+
+    report << "  - Spot-check examples:\n"
+    if largest_underestimation
+      cve_id, details = largest_underestimation
+      report << "    - Largest Under-estimation (CVE: #{cve_id})\n"
+      report << "      - JayPT Score: #{details[:jaypt_score].round(4)}, EPSS Score: #{details[:epss_score].round(4)}, Error: #{details[:error].round(4)}\n"
+      report << "      - Analysis: #{details[:analysis]}\n\n"
+    end
+
+    if largest_overestimation
+      cve_id, details = largest_overestimation
+      report << "    - Largest Over-estimation (CVE: #{cve_id})\n"
+      report << "      - JayPT Score: #{details[:jaypt_score].round(4)}, EPSS Score: #{details[:epss_score].round(4)}, Error: #{details[:error].round(4)}\n"
+      report << "      - Analysis: #{details[:analysis]}\n"
+    end
+
+    score_distribution = {}
+    data[:analyses].each do |cve_id, details|
+      score = details[:jaypt_score]
+      score_distribution[score] ||= 0
+      score_distribution[score] += 1
+    end
+
+    report << "  - Score distribution:\n"
+    score_distribution.each.sort_by { |score, _| score }.each { |score, count| report << "    - #{score}: #{count}\n" }
+
+    report << "\n"
+  end
+
+  report
+end
+
+chat = RubyLLM.chat(model: "google/gemini-2.5-pro-preview")
+iterations = 5
+
+prompt = <<~PROMPT
+   You are a language model responsible for improving the system prompt used by an agent called **JayPT**. JayPT estimates the probability (0.0–1.0) that a CVE will be exploited in the next 30 days, and produces both (1) a short qualitative analysis and (2) a final numeric score. Your mission is to iteratively revise JayPT's system prompt to improve the **accuracy of its numeric scores**, making them more closely align with the **EPSS model**, which serves as the gold standard.
+
+   You will be shown:
+   - The current system prompt used by JayPT.
+   - Summary metrics that evaluate the accuracy of JayPT's scores compared to EPSS.
+   - A set of outputs from JayPT (qualitative analysis + numeric scores).
+   - The corresponding EPSS scores for the same CVEs.
+
+   Use the qualitative analysis to diagnose how JayPT is reasoning about risk, but evaluate success based on **quantitative agreement with EPSS scores**.
+
+   When rewriting the system prompt, you may adjust:
+   - How JayPT defines its goal.
+   - The framing or mathematical heuristics in its reasoning process.
+   - Any assumptions or priors used for probability estimation.
+   - How evidence is converted into likelihood.
+
+   You **must not modify** the following section, which defines the core interaction flow. Preserve its wording and formatting exactly as shown:
+
+   ────────────────────────────────────────────────────────
+   CHAT WORKFLOW (strictly follow each step)
+   ────────────────────────────────────────────────────────
+   1  **System** message (this prompt).
+   2  **User** provides:
+       • the CVE identifier + data from the CVE-Search API.
+   3  **JayPT** performs research & writes a **concise analysis paragraph (≤ 5 sentences)**
+        - **Example**: "This unauthenticated command injection vulnerability in an older ZyXEL router is a classic target for automated botnet activity. The CVE is included in CISA's KEV catalog, confirming it is under active exploitation in the wild, and has been a known target of Mirai variants. Mature, weaponized exploits are publicly available, including a Metasploit module, which makes exploitation trivial for a wide range of actors. While the hardware is dated, SOHO routers often remain unpatched and internet-facing for years, maintaining a viable target population. The combination of these factors points to a sustained and high likelihood of exploitation by opportunistic attackers."
+        – _do **NOT** output a numeric score here_.
+        - _do **NOT** narrate_. (eg: "I'm going to analyze the CVE...")
+   4  **User** replies asking for the score.
+   5  **JayPT** responds with **only the decimal score** (e.g., `0.83`) on its own line; no words, no explanation. ✔ This ends the dialogue for that CVE.
+
+   ────────────────────────────────────────────────────────
+
+   Guidelines:
+   - Revisions should be grounded in the observed mismatch between JayPT's scores and EPSS.
+   - Improvements may involve refining the use of priors, modifying conversion rules, or adjusting emphasis on specific evidence types (e.g., PoCs, prevalence, KEV inclusion).
+   - Do not instruct JayPT to match EPSS scores directly—preserve JayPT's independent reasoning, but guide it to **converge naturally** with EPSS-calibrated outputs through better analysis.
+
+   FYI: For each CVE, JayPT is provided with data from the CVE-Search API. Here is an example CVE payload from that API:
+   {"containers": {"cna": {"affected": [{"product": "Lucee", "vendor": "lucee", "versions": [{"status": "affected", "version": ">= 5.3.5.0, < 5.3.5.96"}, {"status": "affected", "version": ">= 5.3.6.0, < 5.3.6.68"}, {"status": "affected", "version": ">= 5.3.7.0, < 5.3.7.47"}]}], "descriptions": [{"lang": "en", "value": "Lucee Server is a dynamic, Java based (JSR-223), tag and scripting language used for rapid web application development. In Lucee Admin before versions 5.3.7.47, 5.3.6.68 or 5.3.5.96 there is an unauthenticated remote code exploit. This is fixed in versions 5.3.7.47, 5.3.6.68 or 5.3.5.96. As a workaround, one can block access to the Lucee Administrator."}], "metrics": [{"cvssV3_1": {"attackComplexity": "LOW", "attackVector": "NETWORK", "availabilityImpact": "NONE", "baseScore": 8.6, "baseSeverity": "HIGH", "confidentialityImpact": "NONE", "integrityImpact": "HIGH", "privilegesRequired": "NONE", "scope": "CHANGED", "userInteraction": "NONE", "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N", "version": "3.1"}}], "problemTypes": [{"descriptions": [{"cweId": "CWE-862", "description": "CWE-862: Missing Authorization", "lang": "en", "type": "CWE"}]}], "providerMetadata": {"dateUpdated": "2021-08-17T16:06:12", "orgId": "a0819718-46f1-4df5-94e2-005712e83aaa", "shortName": "GitHub_M"}, "references": [{"tags": ["x_refsource_CONFIRM"], "url": "https://github.com/lucee/Lucee/security/advisories/GHSA-2xvv-723c-8p7r"}, {"tags": ["x_refsource_MISC"], "url": "https://github.com/lucee/Lucee/commit/6208ab7c44c61d26c79e0b0af10382899f57e1ca"}, {"tags": ["x_refsource_MISC"], "url": "https://dev.lucee.org/t/lucee-vulnerability-alert-november-2020/7643"}, {"tags": ["x_refsource_MISC"], "url": "https://github.com/httpvoid/writeups/blob/main/Apple-RCE.md"}, {"tags": ["x_refsource_MISC"], "url": "https://portswigger.net/daily-swig/security-researchers-earn-50k-after-exposing-critical-flaw-in-apple-travel-portal"}, {"tags": ["x_refsource_MISC"], "url": "http://ciacfug.org/blog/updating-lucee-as-part-of-a-vulnerability-alert-response"}, {"tags": ["x_refsource_MISC"], "url": "http://packetstormsecurity.com/files/163864/Lucee-Administrator-imgProcess.cfm-Arbitrary-File-Write.html"}], "source": {"advisory": "GHSA-2xvv-723c-8p7r", "discovery": "UNKNOWN"}, "title": "Remote Code Exploit in Lucee Admin", "x_legacyV4Record": {"CVE_data_meta": {"ASSIGNER": "security-advisories@github.com", "ID": "CVE-2021-21307", "STATE": "PUBLIC", "TITLE": "Remote Code Exploit in Lucee Admin"}, "affects": {"vendor": {"vendor_data": [{"product": {"product_data": [{"product_name": "Lucee", "version": {"version_data": [{"version_value": ">= 5.3.5.0, < 5.3.5.96"}, {"version_value": ">= 5.3.6.0, < 5.3.6.68"}, {"version_value": ">= 5.3.7.0, < 5.3.7.47"}]}}]}, "vendor_name": "lucee"}]}}, "data_format": "MITRE", "data_type": "CVE", "data_version": "4.0", "description": {"description_data": [{"lang": "eng", "value": "Lucee Server is a dynamic, Java based (JSR-223), tag and scripting language used for rapid web application development. In Lucee Admin before versions 5.3.7.47, 5.3.6.68 or 5.3.5.96 there is an unauthenticated remote code exploit. This is fixed in versions 5.3.7.47, 5.3.6.68 or 5.3.5.96. As a workaround, one can block access to the Lucee Administrator."}]}, "impact": {"cvss": {"attackComplexity": "LOW", "attackVector": "NETWORK", "availabilityImpact": "NONE", "baseScore": 8.6, "baseSeverity": "HIGH", "confidentialityImpact": "NONE", "integrityImpact": "HIGH", "privilegesRequired": "NONE", "scope": "CHANGED", "userInteraction": "NONE", "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N", "version": "3.1"}}, "problemtype": {"problemtype_data": [{"description": [{"lang": "eng", "value": "CWE-862: Missing Authorization"}]}]}, "references": {"reference_data": [{"name": "https://github.com/lucee/Lucee/security/advisories/GHSA-2xvv-723c-8p7r", "refsource": "CONFIRM", "url": "https://github.com/lucee/Lucee/security/advisories/GHSA-2xvv-723c-8p7r"}, {"name": "https://github.com/lucee/Lucee/commit/6208ab7c44c61d26c79e0b0af10382899f57e1ca", "refsource": "MISC", "url": "https://github.com/lucee/Lucee/commit/6208ab7c44c61d26c79e0b0af10382899f57e1ca"}, {"name": "https://dev.lucee.org/t/lucee-vulnerability-alert-november-2020/7643", "refsource": "MISC", "url": "https://dev.lucee.org/t/lucee-vulnerability-alert-november-2020/7643"}, {"name": "https://github.com/httpvoid/writeups/blob/main/Apple-RCE.md", "refsource": "MISC", "url": "https://github.com/httpvoid/writeups/blob/main/Apple-RCE.md"}, {"name": "https://portswigger.net/daily-swig/security-researchers-earn-50k-after-exposing-critical-flaw-in-apple-travel-portal", "refsource": "MISC", "url": "https://portswigger.net/daily-swig/security-researchers-earn-50k-after-exposing-critical-flaw-in-apple-travel-portal"}, {"name": "http://ciacfug.org/blog/updating-lucee-as-part-of-a-vulnerability-alert-response", "refsource": "MISC", "url": "http://ciacfug.org/blog/updating-lucee-as-part-of-a-vulnerability-alert-response"}, {"name": "http://packetstormsecurity.com/files/163864/Lucee-Administrator-imgProcess.cfm-Arbitrary-File-Write.html", "refsource": "MISC", "url": "http://packetstormsecurity.com/files/163864/Lucee-Administrator-imgProcess.cfm-Arbitrary-File-Write.html"}]}, "source": {"advisory": "GHSA-2xvv-723c-8p7r", "discovery": "UNKNOWN"}}}, "adp": [{"providerMetadata": {"orgId": "af854a3a-2127-422b-91ae-364da2661108", "shortName": "CVE", "dateUpdated": "2024-08-03T18:09:15.162Z"}, "title": "CVE Program Container", "references": [{"tags": ["x_refsource_CONFIRM", "x_transferred"], "url": "https://github.com/lucee/Lucee/security/advisories/GHSA-2xvv-723c-8p7r"}, {"tags": ["x_refsource_MISC", "x_transferred"], "url": "https://github.com/lucee/Lucee/commit/6208ab7c44c61d26c79e0b0af10382899f57e1ca"}, {"tags": ["x_refsource_MISC", "x_transferred"], "url": "https://dev.lucee.org/t/lucee-vulnerability-alert-november-2020/7643"}, {"tags": ["x_refsource_MISC", "x_transferred"], "url": "https://github.com/httpvoid/writeups/blob/main/Apple-RCE.md"}, {"tags": ["x_refsource_MISC", "x_transferred"], "url": "https://portswigger.net/daily-swig/security-researchers-earn-50k-after-exposing-critical-flaw-in-apple-travel-portal"}, {"tags": ["x_refsource_MISC", "x_transferred"], "url": "http://ciacfug.org/blog/updating-lucee-as-part-of-a-vulnerability-alert-response"}, {"tags": ["x_refsource_MISC", "x_transferred"], "url": "http://packetstormsecurity.com/files/163864/Lucee-Administrator-imgProcess.cfm-Arbitrary-File-Write.html"}]}]}, "cveMetadata": {"assignerOrgId": "a0819718-46f1-4df5-94e2-005712e83aaa", "assignerShortName": "GitHub_M", "cveId": "CVE-2021-21307", "datePublished": "2021-02-11T18:20:21", "dateReserved": "2020-12-22T00:00:00", "dateUpdated": "2024-08-03T18:09:15.162Z", "state": "PUBLISHED"}, "dataType": "CVE_RECORD", "dataVersion": "5.1"}
+
+   IMPORTANT: BE CREATIVE. Do not constrain yourself to only making small changes or restraining yourself to the structure of the current prompt. Improve the prompt in any way that you think will improve the accuracy of JayPT's scores. Use some iterations to experiment with new ideas.
+
+  When asked for a new prompt, output only the new system prompt for JayPT. Do not annotate the changes. Do not include code fence backticks or other surrounding punctuation.
+PROMPT
+
+chat.add_message(role: "system", content: prompt)
+
+iterations.times do |i|
+  puts "--- Iteration #{i + 1}/#{iterations} ---"
+
+  puts "Generating CVE sample set..."
+  system("rm -f data/cve_sampling.csv")
+  system("bin/generate_sampling 100 > /dev/null", exception: true)
+
+  puts "Running JayPT analysis..."
+  system("rm -f data/output.csv")
+  system("bin/jaypt data/cve_sampling.csv data/output.csv > /dev/null", exception: true)
+
+  puts "Evaluating results..."
+  evaluation = evaluate_results
+
+  message = ""
+  message << "Here is the current system prompt:\n\n```\n#{File.read(prompt_path)}\n```\n\n" if i.zero?
+  message << "Here is the evaluation of the prompt's performance:\n\n#{evaluation}\n\n"
+
+  puts "Asking for new prompt..."
+  new_prompt =
+    if i < iterations - 1
+      chat.ask("You have #{iterations - 1 - i} attempts left. Respond with your analysis of the prompt that just ran, its performance, and ideas you have for improving it.")
+      chat.ask("Now respond with the new JayPT system prompt in full").content
+    else
+      chat.ask("You have no more attempts left. Respond with the best-performing system prompt from the previous iterations.").content
+    end
+
+  File.write(prompt_path, new_prompt)
+end
+
+require "debug"
+debugger
+
+puts "\n\n---"
+puts "Improvement process complete. The final prompt has been saved to #{prompt_path}."
