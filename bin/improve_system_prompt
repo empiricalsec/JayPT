@@ -5,6 +5,7 @@ require "csv"
 require "fileutils"
 
 prompt_path = File.join(__dir__, "../lib/jaypt/agent/system_prompt.txt")
+log_path = File.join(__dir__, "../data/improve_system_prompt_log.md")
 
 def evaluate_results
   output_csv_path = File.join(__dir__, "../data/output.csv")
@@ -165,7 +166,7 @@ iterations.times do |i|
   puts "Asking for new prompt..."
   new_prompt =
     if i < iterations - 1
-      chat.ask("You have #{iterations - 1 - i} attempts left. Respond with your analysis of the prompt that just ran, its performance, and ideas you have for improving it.")
+      chat.ask("#{message}\n\nYou have #{iterations - 1 - i} attempts left. Respond with your analysis of the prompt that just ran, its performance, and ideas you have for improving it. Do not provide the new prompt yet, that will happen in a followup message. For now just think out loud about how to modify the prompt to improve its performance.")
       chat.ask("Now respond with the new JayPT system prompt in full").content
     else
       chat.ask("You have no more attempts left. Respond with the best-performing system prompt from the previous iterations.").content
@@ -174,8 +175,14 @@ iterations.times do |i|
   File.write(prompt_path, new_prompt)
 end
 
-require "debug"
-debugger
+File.open(log_path, "w") do |file|
+  chat.messages.each do |message|
+    file.puts "---"
+    file.puts "Role: #{message.role}"
+    file.puts "Content: #{message.content}"
+    file.puts "---"
+  end
+end
 
 puts "\n\n---"
-puts "Improvement process complete. The final prompt has been saved to #{prompt_path}."
+puts "Improvement process complete. The final prompt has been saved to #{prompt_path} and a log of the conversation has been saved to #{log_path}."
