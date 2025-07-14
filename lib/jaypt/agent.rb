@@ -35,7 +35,7 @@ module JayPT
 
       {
         score: score.content.to_f,
-        analysis: analysis.content,
+        analysis: analysis.content&.strip,
         inference_time: Time.now - start_inference_time,
         input_tokens: chat.messages.sum { |m| m.input_tokens.to_i },
         output_tokens: chat.messages.sum { |m| m.output_tokens.to_i }

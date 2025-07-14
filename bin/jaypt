@@ -8,14 +8,15 @@ $stderr = File.open("errors.log", "w")
 
 models = [
   "google/gemini-2.5-pro-preview",
-  "x-ai/grok-3-beta",
+  # "x-ai/grok-3-beta",
   "anthropic/claude-3.7-sonnet",
   "openai/gpt-4o-mini"
 ]
 
-POOL_SIZE = 8
+POOL_SIZE = 100
+CHUNK_SIZE = 50
 
-if ARGV.first =~ /\.csv$/
+if ARGV[1]
   raise "Second argument must be an output CSV file" if ARGV[1] !~ /\.csv$/
 
   puts "Models: #{models.join(', ')}"
@@ -23,38 +24,34 @@ if ARGV.first =~ /\.csv$/
   puts "Pool size: #{POOL_SIZE}"
 
   pool = Concurrent::FixedThreadPool.new(POOL_SIZE)
-  futures = []
+  identifiers = File.readlines(ARGV.first, chomp: true)
+  total_chunks = (identifiers.size.to_f / CHUNK_SIZE).ceil
 
-  CSV.open(ARGV[1], "w") do |csv|
-    csv << %w[model cve score analysis inference_time input_tokens output_tokens]
+  identifiers.each_slice(CHUNK_SIZE).with_index do |chunk, chunk_idx|
+    futures = []
 
-    CSV.foreach(ARGV.first, headers: true) do |row|
-      csv << [row["Model"], row["CVE ID"], row["Score"], "", 0, 0, 0] if row["Model"] && row["Score"]
-
+    chunk.each do |identifier|
       models.each do |model|
         futures << Concurrent::Promises.future_on(pool) do
           agent = JayPT::Agent.new(model:)
-          results = agent.score_cve(row["CVE ID"])
-
-          csv << [
-            model,
-            row["CVE ID"],
-            results[:score],
-            results[:analysis],
-            results[:inference_time].round(1),
-            results[:input_tokens],
-            results[:output_tokens]
-          ]
-
-          puts "Analyzed #{row['CVE ID']} (#{model})"
+          res = agent.score_cve(identifier)
+          [model, identifier, res[:score], res[:analysis], res[:inference_time].round(1), res[:input_tokens], res[:output_tokens]]
         rescue StandardError => e
-          csv << [model, row["CVE ID"], 0, "ERROR: #{e.class} - #{e.message[0..100]}", 0, 0, 0]
-          puts "Error analyzing #{row['CVE ID']} (#{model}): #{e.class} - #{e.message}"
+          [model, identifier, 0, "ERROR: #{e.class} - #{e.message[0..100]}", 0, 0, 0]
         end
       end
     end
 
-    Concurrent::Promises.zip(*futures).value!
+    # Wait for all futures in this chunk
+    results = Concurrent::Promises.zip(*futures).value!
+
+    # Write results to CSV (append mode, header only for first chunk)
+    CSV.open(ARGV[1], chunk_idx == 0 ? "w" : "a") do |csv|
+      csv << %w[model cve score analysis inference_time input_tokens output_tokens] if chunk_idx == 0
+      results.each { |row| csv << row }
+    end
+
+    puts "Processed chunk #{chunk_idx + 1}/#{total_chunks} (#{chunk.size} identifiers)"
   end
 else
   puts "Running models against #{ARGV.first}\n\n"
